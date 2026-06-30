@@ -54,7 +54,9 @@ public class LimitService extends Service {
     @Override public void onCreate() {
         super.onCreate();
         createChannels();
-        startForegroundCompat();
+        // If the OS refuses the foreground service (e.g. Android 14's dataSync time budget exhausted),
+        // bail gracefully instead of crashing — detection resumes when the app is next opened / budget resets.
+        if (!startForegroundCompat()) { stopSelf(); return; }
 
         trades = new TradeStore(this);
         node = new NodeApi(this, enabled -> {});
@@ -169,17 +171,36 @@ public class LimitService extends Service {
     // ----- notifications -----
     private void createChannels() { Notifier.ensureChannels(this); }
 
-    private void startForegroundCompat() {
+    /** Start as a foreground service, NEVER crashing. Returns false if the OS refused (the caller stops).
+     *  Uses the {@code specialUse} FGS type on Android 14+ — a persistent chain-watcher doesn't fit
+     *  {@code dataSync}, which Android 14 caps at ~6h/day and then crashes the service when exceeded. */
+    private boolean startForegroundCompat() {
         Notification n = new NotificationCompat.Builder(this, Notifier.CH_FG)
                 .setContentTitle("Minima Limit")
-                .setContentText("Watching your orders & collecting expired")
+                .setContentText("Watching your orders & auto-renewing")
                 .setSmallIcon(android.R.drawable.ic_menu_view)
                 .setOngoing(true)
                 .build();
-        if (Build.VERSION.SDK_INT >= 29) {
-            startForeground(FG_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
-        } else {
-            startForeground(FG_ID, n);
+        try {
+            if (Build.VERSION.SDK_INT >= 34) {
+                startForeground(FG_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
+            } else if (Build.VERSION.SDK_INT >= 29) {
+                startForeground(FG_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+            } else {
+                startForeground(FG_ID, n);
+            }
+            return true;
+        } catch (Exception e) {
+            return false;   // ForegroundServiceStartNotAllowedException etc. — don't crash
         }
+    }
+
+    /** Android 14+: the OS tells a time-limited FGS to stop. Stop gracefully instead of crashing with
+     *  ForegroundServiceDidNotStopInTimeException. (specialUse isn't time-limited, but this is belt-and-braces.) */
+    @Override public void onTimeout(int startId) { stopGracefully(); }
+    @Override public void onTimeout(int startId, int fgsType) { stopGracefully(); }
+    private void stopGracefully() {
+        try { stopForeground(STOP_FOREGROUND_REMOVE); } catch (Exception ignored) {}
+        stopSelf();
     }
 }

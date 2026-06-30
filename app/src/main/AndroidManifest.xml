@@ -8,6 +8,9 @@
     <!-- Background auto-reveal / auto-resolve foreground service -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- Android 14+: a persistent chain-watcher uses the special-use FGS type (dataSync is capped at
+         ~6h/day on Android 14 and crashes the service when exceeded) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <!-- Keep detecting fills while the app is closed: ask to be exempt from battery optimisation so the
          OS doesn't doze-kill the order-watcher service -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
@@ -43,7 +46,11 @@
             android:name=".LimitService"
             android:exported="false"
             android:stopWithTask="false"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="specialUse|dataSync">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Watches the on-chain order book to detect fills and auto-renew the user's GTC orders while the app is closed" />
+        </service>
     </application>
 
 </manifest>
