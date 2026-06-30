@@ -173,6 +173,9 @@ public class MainActivity extends AppCompatActivity {
 
     // ===== loading =====
     public void reload() {
+        // Re-check at fire time, not just when scheduled: a reload posted just before a field gained focus
+        // (e.g. hopping price→amount) must not run mid-typing. Resumes via onResume/onPageSelected/blur.
+        if (inputFocused) return;
         node.cmd("balance", new NodeApi.Cb() {
             @Override public void onResult(JSONObject json) {
                 JSONArray arr = json.optJSONArray("response");

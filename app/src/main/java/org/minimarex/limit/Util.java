@@ -54,7 +54,11 @@ public final class Util {
     public static BigDecimal dec(String s) {
         try {
             if (s == null || s.isEmpty()) return BigDecimal.ZERO;
-            return new BigDecimal(s.trim().replace(',', '.'));   // tolerate locale comma decimal
+            String t = s.trim();
+            // Tolerate a locale comma decimal without mangling a grouping comma: if a '.' is present it's
+            // the decimal and commas are grouping (strip them); otherwise a lone ',' IS the decimal.
+            t = (t.indexOf('.') >= 0) ? t.replace(",", "") : t.replace(',', '.');
+            return new BigDecimal(t);
         } catch (Exception e) { return BigDecimal.ZERO; }
     }
 }
