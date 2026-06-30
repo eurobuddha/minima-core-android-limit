@@ -32,6 +32,10 @@ public class NewOrderView extends BaseView {
     private LinearLayout ordersBox;    // the ONLY part rebuilt on refresh
     private boolean built = false;
     private final Set<String> cancelling = new HashSet<>();
+    // Debounce the total so NOTHING runs synchronously on each keystroke (a per-keystroke setText was
+    // racing the Samsung keyboard's per-key commit and scrambling fast input).
+    private final android.os.Handler totalHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable totalTask = this::updateTotal;
 
     public NewOrderView(MainActivity a) {
         super(a, R.layout.view_container);
@@ -83,7 +87,12 @@ public class NewOrderView extends BaseView {
 
         TextWatcher w = new TextWatcher() {
             public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
-            public void onTextChanged(CharSequence s, int a, int b, int c) { updateTotal(); }
+            // Defer the total; do NOT touch any view synchronously inside the keystroke (that write was
+            // racing the keyboard's next commit and corrupting fast typing).
+            public void onTextChanged(CharSequence s, int a, int b, int c) {
+                totalHandler.removeCallbacks(totalTask);
+                totalHandler.postDelayed(totalTask, 300);
+            }
             public void afterTextChanged(Editable s) {}
         };
         priceIn.addTextChangedListener(w); amountIn.addTextChangedListener(w);
