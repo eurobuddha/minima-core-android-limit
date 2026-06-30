@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Limit web palette (style.css :root). Light, cream-paper fintech. -->
+    <color name="bg">#F4F2ED</color>
+    <color name="surface">#FFFFFF</color>
+    <color name="panel">#FFFFFF</color>
+    <color name="border">#D8D4CC</color>
+    <color name="text">#1A1A1A</color>
+    <color name="dim">#7A7568</color>
+    <color name="accent">#B45309</color>
+    <color name="green">#16A34A</color>
+    <color name="red">#DC2626</color>
+    <!-- legacy aliases used by older XML; mapped onto the new palette -->
+    <color name="gold">#B45309</color>
+    <color name="cyan">#B45309</color>
+    <color name="pink">#DC2626</color>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+</resources>
