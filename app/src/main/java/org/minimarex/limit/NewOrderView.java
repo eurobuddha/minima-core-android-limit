@@ -63,7 +63,7 @@ public class NewOrderView extends BaseView {
         container.addView(box);
 
         container.addView(fieldLabel("Price per Minima (USDT)"));
-        priceIn = input("0.00");
+        priceIn = input("0.00000");
         container.addView(priceIn);
         container.addView(fieldLabel("Amount of Minima"));
         amountIn = input("0.00");
@@ -318,7 +318,8 @@ public class NewOrderView extends BaseView {
         e.setBackground(Ui.rounded(Theme.surface(), Theme.border(), Ui.RADIUS, act));
         e.setOnFocusChangeListener((v, has) -> {
             e.setBackground(Ui.rounded(Theme.surface(), has ? Theme.accent() : Theme.border(), Ui.RADIUS, act));
-            if (!has) refresh();   // re-sync the dynamic content once the user finishes typing
+            act.inputFocused = has;            // suspend the reload loop while typing
+            if (!has) { refresh(); act.requestReload(); }   // re-sync once the user finishes typing
         });
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         lp.bottomMargin = Ui.dp(act, 16);

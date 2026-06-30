@@ -104,7 +104,7 @@ public class MainActivity extends AppCompatActivity {
         pager.setOffscreenPageLimit(3);
         ((TabLayout) findViewById(R.id.tabs)).setupWithViewPager(pager);
         pager.addOnPageChangeListener(new ViewPager.SimpleOnPageChangeListener() {
-            @Override public void onPageSelected(int p) { views[p].onShown(); }
+            @Override public void onPageSelected(int p) { inputFocused = false; views[p].onShown(); }
         });
 
         notifyReceiver = new BroadcastReceiver() {
@@ -127,7 +127,7 @@ public class MainActivity extends AppCompatActivity {
         loadIdentity();
     }
 
-    @Override protected void onResume() { super.onResume(); FOREGROUND = true; requestReload(); }
+    @Override protected void onResume() { super.onResume(); FOREGROUND = true; inputFocused = false; requestReload(); }
     @Override protected void onPause() { super.onPause(); FOREGROUND = false; }
     @Override protected void onDestroy() {
         super.onDestroy();
@@ -306,7 +306,14 @@ public class MainActivity extends AppCompatActivity {
     private void setPaired(boolean paired) { pairingBanner.setVisibility(paired ? View.GONE : View.VISIBLE); }
     private void handleErr(String message) { if (NodeApi.ERR_NOT_ENABLED.equals(message)) { setPaired(false); log("Enable Minima Limit in Minima Core → Apps", LOG_WARN); } }
 
-    public void requestReload() { ui.removeCallbacks(reloadTask); ui.postDelayed(reloadTask, 400); }
+    /** Set by NewOrderView while a price/amount field is focused — suspends the reload loop so background
+     *  block/balance updates can't relayout the UI under the keyboard and disrupt typing. */
+    public volatile boolean inputFocused = false;
+    public void requestReload() {
+        ui.removeCallbacks(reloadTask);
+        if (inputFocused) return;               // don't churn the UI while the user is typing
+        ui.postDelayed(reloadTask, 400);
+    }
     public void toast(String msg) { Toast.makeText(this, msg, Toast.LENGTH_SHORT).show(); }
     public void switchTab(int tab) { if (pager != null) pager.setCurrentItem(tab, true); }
 
