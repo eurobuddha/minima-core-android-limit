@@ -26,11 +26,10 @@ public final class PriceMath {
         return amount.multiply(price).setScale(CHAIN_SCALE, RoundingMode.HALF_UP);
     }
 
-    /** Display price: 6 dp if <0.01, 5 dp if <1, else 4 dp. */
+    /** Display price: ALWAYS 5 decimals (e.g. 0.00575, 0.50000) — consistent everywhere a price shows. */
     public static String fmtPrice(BigDecimal p) {
-        if (p == null) return "0";
-        int dp = p.compareTo(new BigDecimal("0.01")) < 0 ? 6 : p.compareTo(BigDecimal.ONE) < 0 ? 5 : 4;
-        return p.setScale(dp, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString();
+        if (p == null) return "0.00000";
+        return p.setScale(5, RoundingMode.HALF_UP).toPlainString();
     }
 
     /** Tidy display amount: cap 6 dp, drop trailing zeros. */

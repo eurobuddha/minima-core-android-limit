@@ -90,6 +90,9 @@ public class MainActivity extends AppCompatActivity {
         ((Button) findViewById(R.id.btnSound)).setOnClickListener(v -> requestReload());
         ((Button) findViewById(R.id.btnExit)).setOnClickListener(v -> finish());
         findViewById(R.id.btnBridge).setOnClickListener(v -> openUrl("https://mxusd.global"));
+        // Real build version in the footer (was hardcoded) so the installed build is verifiable.
+        ((TextView) findViewById(R.id.footer)).setText(
+                "Limit v" + BuildConfig.VERSION_NAME + "  |  VERIFYOUT Smart Contract  |  Bridge USDT  |  GitHub");
 
         trades = new TradeStore(this);
         node = new NodeApi(this, this::setPaired);
