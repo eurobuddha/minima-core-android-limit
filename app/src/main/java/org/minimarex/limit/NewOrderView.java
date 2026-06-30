@@ -111,6 +111,11 @@ public class NewOrderView extends BaseView {
     @Override
     public void refresh() {
         if (!built) return;
+        // While the user is typing in a price/amount field, do NOT mutate the view tree. Re-rendering the
+        // orders list under a focused EditText disrupts the keyboard's input connection and scrambles /
+        // truncates what's being typed (the recurring "0.00575 → garbage" bug). The live total still
+        // updates via the field's own TextWatcher; everything re-syncs on blur or the next event.
+        if ((priceIn != null && priceIn.hasFocus()) || (amountIn != null && amountIn.hasFocus())) return;
         styleToggle();
         updateTotal();
         renderOrders();
@@ -306,13 +311,15 @@ public class NewOrderView extends BaseView {
         e.setTextColor(Theme.text());
         e.setTextSize(16);
         e.setTypeface(Theme.body());
+        // Plain decimal number input: allows '.' and unlimited fraction digits. (A DigitsKeyListener was
+        // tried and REMOVED — combined with the periodic refresh it corrupted the IME composing region.)
         e.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
-        // Force '.' decimal and allow unlimited fraction digits regardless of device locale.
-        e.setKeyListener(android.text.method.DigitsKeyListener.getInstance(java.util.Locale.US, false, true));
         e.setPadding(Ui.dp(act, 14), Ui.dp(act, 12), Ui.dp(act, 14), Ui.dp(act, 12));
         e.setBackground(Ui.rounded(Theme.surface(), Theme.border(), Ui.RADIUS, act));
-        e.setOnFocusChangeListener((v, has) ->
-                e.setBackground(Ui.rounded(Theme.surface(), has ? Theme.accent() : Theme.border(), Ui.RADIUS, act)));
+        e.setOnFocusChangeListener((v, has) -> {
+            e.setBackground(Ui.rounded(Theme.surface(), has ? Theme.accent() : Theme.border(), Ui.RADIUS, act));
+            if (!has) refresh();   // re-sync the dynamic content once the user finishes typing
+        });
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         lp.bottomMargin = Ui.dp(act, 16);
         e.setLayoutParams(lp);

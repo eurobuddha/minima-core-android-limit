@@ -52,7 +52,9 @@ public final class Util {
 
     /** Parse a possibly-empty amount string to BigDecimal, defaulting to zero. */
     public static BigDecimal dec(String s) {
-        try { return (s == null || s.isEmpty()) ? BigDecimal.ZERO : new BigDecimal(s); }
-        catch (Exception e) { return BigDecimal.ZERO; }
+        try {
+            if (s == null || s.isEmpty()) return BigDecimal.ZERO;
+            return new BigDecimal(s.trim().replace(',', '.'));   // tolerate locale comma decimal
+        } catch (Exception e) { return BigDecimal.ZERO; }
     }
 }
