@@ -15,6 +15,7 @@ public class TradeStore {
     private static final String PREFS = "limit_trades";
     private static final String KEY = "trades";
     private static final String KEY_MINE = "my_orders";   // persisted snapshot of my live orders
+    private static final String KEY_RENEW = "gtc_renewals"; // persisted in-flight GTC renewals
     private final SharedPreferences prefs;
 
     public TradeStore(Context c) { prefs = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE); }
@@ -25,6 +26,15 @@ public class TradeStore {
     }
     public void putMyOrdersRaw(JSONArray a) {
         prefs.edit().putString(KEY_MINE, a == null ? "[]" : a.toString()).apply();
+    }
+
+    /** Persisted in-flight GTC renewals (cancel posted, recreate pending) — so a service restart mid-renewal
+     *  resumes the re-place instead of stranding the order's funds in the wallet. */
+    public JSONArray renewalsRaw() {
+        try { return new JSONArray(prefs.getString(KEY_RENEW, "[]")); } catch (Exception e) { return new JSONArray(); }
+    }
+    public void putRenewalsRaw(JSONArray a) {
+        prefs.edit().putString(KEY_RENEW, a == null ? "[]" : a.toString()).apply();
     }
 
     public List<Trade> all() {

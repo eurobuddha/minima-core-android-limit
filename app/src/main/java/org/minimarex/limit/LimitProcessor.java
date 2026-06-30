@@ -3,6 +3,7 @@ package org.minimarex.limit;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -15,36 +16,42 @@ import java.util.concurrent.ConcurrentHashMap;
  * The Limit background brain, shared by {@link MainActivity} (foreground) and {@link LimitService}
  * (background). On each block, against the current order book, it:
  *
- *   1. MAKER-FILL DETECTION — one of MY resting orders that has left the book WITHOUT having expired
- *      was taken by a counterparty, so the maker has been paid. Fire {@link Listener#onMakerFilled}
- *      so the host can notify + record the trade.
- *   2. AUTO-COLLECT EXPIRED — for MY orders past the 1500-block expiry, post the COINAGE refund path
- *      (capped + de-duped per block) to reclaim the locked funds, exactly as the dapp.
+ *   1. MAKER-FILL DETECTION — one of MY resting orders that left the book without expiring was taken by a
+ *      counterparty → {@link Listener#onMakerFilled}.
+ *   2. GTC AUTO-RENEWAL — for MY good-till-cancelled orders (state port 7) that reach {@code RENEW_AT},
+ *      re-place them (cancel → recreate) so the coin age resets and the order never expires. A 2-step,
+ *      persisted state machine survives the cancel→recreate gap across a service restart.
+ *   3. AUTO-COLLECT EXPIRED — any order past 1500 (mine non-GTC, or anyone's abandoned) is pushed back to
+ *      its maker via the trustless COINAGE path (book hygiene; the contract pins the output to the maker).
  *
- * My open orders are PERSISTED (via {@link TradeStore}) and the processor seeds its previous-set from
- * that snapshot on construction, so detection survives a service restart and the foreground↔background
- * hand-off — no "skip the first scan" blind spot. Orders that vanish while past expiry are treated as
- * expiry refunds, not fills.
+ * State is PERSISTED via {@link TradeStore} (the my-orders snapshot for fill detection, and in-flight
+ * renewals), so nothing is lost across the foreground↔background hand-off or a worker restart.
  */
 public class LimitProcessor {
 
     public interface Listener {
-        /** One of my resting orders was filled by a taker (maker got paid). */
         void onMakerFilled(OrderSnap order);
         void onError(String message);
     }
 
     private static final int MAX_COLLECT_PER_BLOCK = 2;
+    private static final int MAX_RENEW_PER_BLOCK = 2;
+    private static final int MAX_RECREATE_RETRIES = 5;
+    private static final int RECREATE_WAIT = 6;   // scans to let a posted recreate land before re-posting (anti double-create)
 
     private final LimitTxn txn;
     private final TradeStore store;
     private final Set<String> collecting = Collections.newSetFromMap(new ConcurrentHashMap<>());
-    private Map<String, OrderSnap> prevMine;   // my orders seen last scan (seeded from persistence)
+    private final Set<String> renewing = Collections.newSetFromMap(new ConcurrentHashMap<>()); // old coinids mid-renewal
+    private final Set<String> recreateInFlight = Collections.newSetFromMap(new ConcurrentHashMap<>()); // orderIds with a recreate send in progress (transient)
+    private final Map<String, Pending> pending = new ConcurrentHashMap<>();   // orderId -> in-flight renewal
+    private Map<String, OrderSnap> prevMine;
 
     public LimitProcessor(LimitTxn txn, TradeStore store) {
         this.txn = txn;
         this.store = store;
         prevMine = loadSnapshot();
+        loadRenewals();                                  // rebuilds `pending` + `renewing` after a restart
     }
 
     public void process(List<Order> book, Set<String> myKeys, int chainBlock, Listener l) {
@@ -52,53 +59,109 @@ public class LimitProcessor {
 
         Map<String, OrderSnap> nowMine = new HashMap<>();
         Set<String> liveIds = new HashSet<>();
+        Set<String> nowMineOrderIds = new HashSet<>();
         for (Order o : book) {
             liveIds.add(o.coinid());
-            if (o.isMine(myKeys)) nowMine.put(o.coinid(), OrderSnap.of(o));
+            if (o.isMine(myKeys)) { nowMine.put(o.coinid(), OrderSnap.of(o)); nowMineOrderIds.add(o.orderId()); }
         }
 
-        // 1) maker-fill detection: my orders resting last scan that have now left the book.
+        // 1) maker-fill detection — skip coins we're collecting or renewing (those aren't fills).
         for (Map.Entry<String, OrderSnap> e : prevMine.entrySet()) {
             String id = e.getKey();
-            if (nowMine.containsKey(id)) continue;          // still resting
+            if (nowMine.containsKey(id)) continue;
             OrderSnap gone = e.getValue();
-            if (gone.expired(chainBlock)) continue;         // expiry refund (by me or anyone), not a fill
-            if (collecting.contains(id)) continue;          // we reclaimed it ourselves
+            if (gone.expired(chainBlock)) continue;
+            if (collecting.contains(id) || renewing.contains(id)) continue;   // self-actions, not a fill
             if (l != null) l.onMakerFilled(gone);
         }
         prevMine = nowMine;
         persistSnapshot(nowMine);
-        collecting.retainAll(liveIds);                      // bounded; drop collects that have settled
+        collecting.retainAll(liveIds);
 
-        // 2) auto-collect MY expired orders (anyone may collect; it refunds the maker).
-        int done = 0;
+        // 2) advance in-flight GTC renewals (cancel mined → recreate; new coin arrived → done).
+        advanceRenewals(liveIds, nowMineOrderIds, l);
+
+        // 3) start renewals (mine + GTC + due) and collect expired (mine non-GTC, or anyone's abandoned).
+        int renews = 0, collects = 0;
         for (Order o : book) {
-            if (done >= MAX_COLLECT_PER_BLOCK) break;
-            if (!o.expired(chainBlock) || !o.isMine(myKeys)) continue;
             final String id = o.coinid();
-            if (!collecting.add(id)) continue;
-            done++;
-            txn.collectExpired(o, new LimitTxn.Result() {
-                @Override public void onPosted(String txpowid) {}
+            if (o.isMine(myKeys) && o.isGtc()) {
+                if (renews < MAX_RENEW_PER_BLOCK && o.renewDue(chainBlock)
+                        && !pending.containsKey(o.orderId()) && !renewing.contains(id)) {
+                    renews++;
+                    startRenewal(o, l);
+                }
+                continue;                                 // never collect my GTC orders — they renew
+            }
+            if (collects < MAX_COLLECT_PER_BLOCK && o.expired(chainBlock)
+                    && !renewing.contains(id) && collecting.add(id)) {
+                collects++;
+                txn.collectExpired(o, new LimitTxn.Result() {
+                    @Override public void onPosted(String txpowid) {}
+                    @Override public void onFailed(String message) { collecting.remove(id); if (l != null) l.onError(message); }
+                });
+            }
+        }
+    }
+
+    // ----- GTC renewal state machine -----
+    private void startRenewal(Order o, Listener l) {
+        final Pending p = new Pending(o.orderId(), o.coinid(), o.lockedAmount(),
+                PriceMath.isUsdt(o.lockedTok()), LimitTxn.gtcState(o), 0, false, 0);
+        pending.put(p.orderId, p);
+        renewing.add(p.oldCoinid);
+        persistRenewals();
+        txn.cancel(o, new LimitTxn.Result() {
+            @Override public void onPosted(String txpowid) {}      // recreate fires once the cancel mines
+            @Override public void onFailed(String message) {
+                pending.remove(p.orderId);
+                renewing.remove(p.oldCoinid);
+                persistRenewals();
+                if (l != null) l.onError(message);
+            }
+        });
+    }
+
+    private void advanceRenewals(Set<String> liveIds, Set<String> nowMineOrderIds, Listener l) {
+        for (final Pending p : new ArrayList<>(pending.values())) {
+            if (liveIds.contains(p.oldCoinid)) continue;                 // cancel not mined yet → wait
+            // The fresh coin shares the orderId, so it's only "done" once the OLD coin is gone AND the
+            // orderId is back in the book (the new coin). This also makes a restart idempotent: if the
+            // recreate already landed, we detect it here instead of posting a duplicate.
+            if (nowMineOrderIds.contains(p.orderId)) { finish(p); continue; }
+            if (recreateInFlight.contains(p.orderId)) continue;         // a recreate send is in progress
+            // If a recreate was already posted (incl. before a restart), wait for it to land before
+            // posting another — prevents a duplicate order/double-lock if it's just slow to mine.
+            if (p.recreateSent && ++p.waits < RECREATE_WAIT) { persistRenewals(); continue; }
+            recreateInFlight.add(p.orderId);                            // cancel mined, no new coin yet → re-place
+            txn.recreate(p.lockAmt, p.lockTokUsdt, p.state, new LimitTxn.Result() {
+                @Override public void onPosted(String txpowid) {
+                    recreateInFlight.remove(p.orderId); p.recreateSent = true; p.waits = 0; persistRenewals();
+                }
                 @Override public void onFailed(String message) {
-                    collecting.remove(id);
+                    recreateInFlight.remove(p.orderId);
+                    p.recreateSent = false;                             // not actually posted → allow retry
+                    if (++p.retries > MAX_RECREATE_RETRIES) finish(p);  // give up; funds safe in the wallet
+                    persistRenewals();
                     if (l != null) l.onError(message);
                 }
             });
         }
     }
 
+    private void finish(Pending p) {
+        renewing.remove(p.oldCoinid);
+        pending.remove(p.orderId);
+        persistRenewals();
+    }
+
     /** Build the history entry for one of my orders that a taker filled. */
     public static Trade makerTrade(OrderSnap o, int block, double gecko) {
         Trade t = new Trade();
         t.time = System.currentTimeMillis();
-        t.kind = o.sell ? "SELL" : "BUY";   // my resting side (SELL sold MINIMA, BUY bought MINIMA)
-        t.minima = o.minima;
-        t.usdt = o.usdt;
-        t.price = o.price;
-        t.gecko = gecko;
-        t.block = block;
-        t.coinid = o.coinid;
+        t.kind = o.sell ? "SELL" : "BUY";
+        t.minima = o.minima; t.usdt = o.usdt; t.price = o.price;
+        t.gecko = gecko; t.block = block; t.coinid = o.coinid;
         return t;
     }
 
@@ -121,30 +184,70 @@ public class LimitProcessor {
         for (OrderSnap s : mine.values()) a.put(s.toJson());
         store.putMyOrdersRaw(a);
     }
+    private void loadRenewals() {
+        if (store == null) return;
+        JSONArray a = store.renewalsRaw();
+        for (int i = 0; i < a.length(); i++) {
+            JSONObject o = a.optJSONObject(i);
+            if (o == null) continue;
+            Pending p = Pending.from(o);
+            if (p != null) { pending.put(p.orderId, p); renewing.add(p.oldCoinid); }
+        }
+    }
+    private void persistRenewals() {
+        if (store == null) return;
+        JSONArray a = new JSONArray();
+        for (Pending p : pending.values()) a.put(p.toJson());
+        store.putRenewalsRaw(a);
+    }
 
-    /** A compact, persistable view of one of my orders — enough to detect a fill, classify expiry,
-     *  and build the resulting trade/notification without holding the full {@link Coin}. */
+    /** One in-flight GTC renewal (cancel posted; recreate happens once the cancel mines). */
+    static class Pending {
+        final String orderId, oldCoinid, lockAmt, state;
+        final boolean lockTokUsdt;
+        int retries;
+        boolean recreateSent;     // a recreate has been posted (persisted so a restart waits for it, not re-posts)
+        int waits;                // scans waited for a posted recreate to land
+        Pending(String orderId, String oldCoinid, String lockAmt, boolean lockTokUsdt, String state,
+                int retries, boolean recreateSent, int waits) {
+            this.orderId = orderId; this.oldCoinid = oldCoinid; this.lockAmt = lockAmt;
+            this.lockTokUsdt = lockTokUsdt; this.state = state; this.retries = retries;
+            this.recreateSent = recreateSent; this.waits = waits;
+        }
+        JSONObject toJson() {
+            JSONObject o = new JSONObject();
+            try {
+                o.put("orderId", orderId); o.put("oldCoinid", oldCoinid); o.put("lockAmt", lockAmt);
+                o.put("lockTokUsdt", lockTokUsdt); o.put("state", state); o.put("retries", retries);
+                o.put("recreateSent", recreateSent); o.put("waits", waits);
+            } catch (Exception ignored) {}
+            return o;
+        }
+        static Pending from(JSONObject o) {
+            String oid = o.optString("orderId", "");
+            if (oid.isEmpty()) return null;
+            return new Pending(oid, o.optString("oldCoinid", ""), o.optString("lockAmt", "0"),
+                    o.optBoolean("lockTokUsdt", false), o.optString("state", ""), o.optInt("retries", 0),
+                    o.optBoolean("recreateSent", false), o.optInt("waits", 0));
+        }
+    }
+
+    /** A compact, persistable view of one of my orders (for fill detection / notifications). */
     public static class OrderSnap {
         public final String coinid;
         public final boolean sell;
         public final String minima, usdt, price;
         public final long created;
-
         OrderSnap(String coinid, boolean sell, String minima, String usdt, String price, long created) {
             this.coinid = coinid; this.sell = sell; this.minima = minima;
             this.usdt = usdt; this.price = price; this.created = created;
         }
-
         static OrderSnap of(Order o) {
             return new OrderSnap(o.coinid(), o.isSell(),
                     PriceMath.fmtDisplay(o.minimaAmount()), PriceMath.fmtDisplay(o.usdtAmount()),
                     PriceMath.fmtPrice(o.price()), o.createdBlock());
         }
-
-        boolean expired(int tip) {
-            return created >= 0 && (tip - created) > LimitContract.EXPIRY_BLOCKS;
-        }
-
+        boolean expired(int tip) { return created >= 0 && (tip - created) > LimitContract.EXPIRY_BLOCKS; }
         JSONObject toJson() {
             JSONObject o = new JSONObject();
             try {

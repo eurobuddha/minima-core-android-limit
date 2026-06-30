@@ -38,8 +38,8 @@ public class OrderBookView extends BaseView {
         // sells (asks) and buys (bids), price desc, dust + expired hidden (display only).
         List<Order> sells = new ArrayList<>(), buys = new ArrayList<>();
         for (Order o : act.orders()) {
-            if (o.minimaAmount().compareTo(PriceMath.MIN_ORDER) < 0) continue;     // dust
-            if (o.expired(act.chainBlock())) continue;                              // expired hidden from book
+            if (o.minimaAmount().compareTo(PriceMath.MIN_ORDER) < 0) continue;      // dust
+            if (!o.isGtc() && o.expired(act.chainBlock())) continue;                // hide expired (but never a GTC order, which auto-renews)
             (o.isSell() ? sells : buys).add(o);
         }
         Collections.sort(sells, Comparator.comparing((Order o) -> o.price()).reversed());
@@ -98,7 +98,7 @@ public class OrderBookView extends BaseView {
     private View headRow() {
         LinearLayout r = gridRow();
         r.addView(edgeSpacer());
-        r.addView(headCell("Side", false, 52, 0));
+        r.addView(headCell("Side", false, 56, 0));
         r.addView(headCell("Price (USDT)", true, 0, 1.1f));
         r.addView(headCell("Amount", true, 0, 1f));
         r.addView(headCell("Total", true, 0, 1f));
@@ -113,7 +113,8 @@ public class OrderBookView extends BaseView {
 
         LinearLayout r = gridRow();
         r.addView(Ui.leftEdge(act, sideColor));               // 4dp coloured left border
-        r.addView(dataCell(o.isSell() ? "SELL" : "BUY", sideColor, true, 52, 0));
+        // side tag, with a "∞" marker on good-till-cancelled orders (they never expire)
+        r.addView(dataCell((o.isSell() ? "SELL" : "BUY") + (o.isGtc() ? "∞" : ""), sideColor, true, 56, 0));
         r.addView(dataCell(PriceMath.fmtPrice(o.price()), sideColor, true, 0, 1.1f));
         r.addView(dataCell(PriceMath.fmtDisplay(o.minimaAmount()), Theme.text(), false, 0, 1f));
         r.addView(dataCell(PriceMath.fmtDisplay(o.usdtAmount()), Theme.text(), false, 0, 1f));

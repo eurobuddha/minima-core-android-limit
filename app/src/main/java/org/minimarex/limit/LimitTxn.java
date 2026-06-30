@@ -34,8 +34,9 @@ public class LimitTxn {
     }
 
     // ===================================================================== create (always V4)
-    /** Place an order. buy = lock USDT want Minima; sell = lock Minima want USDT. */
-    public void createOrder(boolean buy, BigDecimal minimaAmount, BigDecimal price, Result cb) {
+    /** Place an order. buy = lock USDT want Minima; sell = lock Minima want USDT. gtc = good-till-cancelled
+     *  (state port 7 = "1"), which the app auto-renews so the order never expires. */
+    public void createOrder(boolean buy, BigDecimal minimaAmount, BigDecimal price, boolean gtc, Result cb) {
         BigDecimal usdt = PriceMath.total(minimaAmount, price);
         String lockAmt, lockTokArg, wantAmt, wantTok;
         if (buy) {
@@ -49,13 +50,49 @@ public class LimitTxn {
         String side = buy ? "0" : "1";
         String state = "{\"0\":\"" + myPubkey + "\",\"1\":\"" + myHexAddr + "\",\"2\":\"" + wantAmt
                 + "\",\"3\":\"" + wantTok + "\",\"4\":\"" + orderId + "\",\"5\":\"" + side
-                + "\",\"6\":\"" + price.toPlainString() + "\"}";
+                + "\",\"6\":\"" + price.toPlainString() + "\"" + (gtc ? ",\"7\":\"1\"" : "") + "}";
+        send(lockAmt, lockTokArg, state, "Send failed", cb);
+    }
+
+    /** Build the verbatim state for re-placing a GTC order (preserves orderId/side/price + sets port 7). */
+    public static String gtcState(Order o) {
+        return "{\"0\":\"" + o.ownerPk() + "\",\"1\":\"" + o.wantAddr() + "\",\"2\":\"" + o.wantAmt()
+                + "\",\"3\":\"" + o.wantTok() + "\",\"4\":\"" + o.orderId() + "\",\"5\":\"" + (o.isBuy() ? "0" : "1")
+                + "\",\"6\":\"" + o.priceRaw() + "\",\"7\":\"1\"}";
+    }
+
+    /** Step 2 of a GTC renewal: re-lock the (now-returned) funds into a fresh order coin (age reset).
+     *  GUARDED: only re-locks if the cancel's exact funds are actually back in the wallet (a spendable
+     *  plain coin of exactly lockAmt/lockTok). If the order was FILLED instead of cancelled, the locked
+     *  asset went to the taker and never returns, so this safely no-ops rather than locking fresh funds. */
+    public void recreate(String lockAmt, boolean lockTokUsdt, String state, Result cb) {
+        final String lockTok = lockTokUsdt ? USDT_ID : Util.MINIMA_TOKENID;
+        final BigDecimal need = Util.dec(lockAmt);
+        node.cmd("coins relevant:true sendable:true tokenid:" + lockTok, new NodeApi.Cb() {
+            @Override public void onResult(JSONObject json) {
+                JSONArray arr = json.optJSONArray("response");
+                boolean returned = false;
+                if (arr != null) for (int i = 0; i < arr.length(); i++) {
+                    JSONObject jc = arr.optJSONObject(i);
+                    if (jc == null) continue;
+                    Coin c = Coin.from(jc);
+                    if (c.hasState()) continue;                                  // plain wallet coins only
+                    if (Util.dec(c.amount).compareTo(need) == 0) { returned = true; break; }
+                }
+                if (!returned) { cb.onFailed("Cancel not settled — funds not back, not re-locking"); return; }
+                send(lockAmt, lockTokUsdt ? " tokenid:" + USDT_ID : "", state, "Renew send failed", cb);
+            }
+            @Override public void onError(String m) { cb.onFailed(m); }
+        });
+    }
+
+    private void send(String lockAmt, String lockTokArg, String state, String failMsg, Result cb) {
         node.cmd("send amount:" + lockAmt + " address:" + ADDR_V4 + lockTokArg + " state:" + state,
                 new NodeApi.Cb() {
             @Override public void onResult(JSONObject s) {
                 if (s.optBoolean("status", false) || s.optBoolean("pending", false))
                     cb.onPosted(Util.extractTxpowid(s, ""));
-                else cb.onFailed("Send failed" + err(s));
+                else cb.onFailed(failMsg + err(s));
             }
             @Override public void onError(String m) { cb.onFailed(m); }
         });

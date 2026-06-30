@@ -26,8 +26,9 @@ public class NewOrderView extends BaseView {
 
     private final LinearLayout container;
     private boolean buy = true;        // BUY MINIMA (lock USDT) by default
+    private boolean gtc = true;        // good-till-cancelled (auto-renews, never expires) — on by default
     private EditText priceIn, amountIn;
-    private TextView totalTv, buyBtn, sellBtn;
+    private TextView totalTv, buyBtn, sellBtn, gtcView;
     private Button placeBtn;
     private LinearLayout ordersBox;    // the ONLY part rebuilt on refresh
     private boolean built = false;
@@ -97,6 +98,12 @@ public class NewOrderView extends BaseView {
         };
         priceIn.addTextChangedListener(w); amountIn.addTextChangedListener(w);
 
+        // GTC toggle — auto-renews the order so it never expires (on by default).
+        gtcView = Ui.mono(act, "", Theme.dim(), 13, true);
+        gtcView.setPadding(Ui.dp(act, 2), Ui.dp(act, 14), 0, 0);
+        gtcView.setOnClickListener(v -> { gtc = !gtc; styleGtc(); });
+        container.addView(gtcView);
+
         placeBtn = Ui.button(act, "Place Buy Order", Theme.green(), Theme.onAccent());
         LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         plp.topMargin = Ui.dp(act, 14);
@@ -113,7 +120,14 @@ public class NewOrderView extends BaseView {
 
         built = true;
         styleToggle();
+        styleGtc();
         updateTotal();
+    }
+
+    private void styleGtc() {
+        if (gtcView == null) return;
+        gtcView.setText(gtc ? "☑  GTC — never expires (auto-renews)" : "☐  GTC off — expires in ~23h");
+        gtcView.setTextColor(gtc ? Theme.green() : Theme.dim());
     }
 
     // ===== refresh: ONLY dynamic bits (never the inputs) =====
@@ -183,8 +197,9 @@ public class NewOrderView extends BaseView {
         BigDecimal amt = Util.dec(amountIn.getText().toString().trim());
         if (price.signum() <= 0) { act.toast("Enter a price"); return; }
         if (amt.compareTo(PriceMath.MIN_ORDER) < 0) { act.toast("Minimum order is 0.01 MINIMA"); return; }
-        act.log((buy ? "Placing BUY " : "Placing SELL ") + PriceMath.fmtDisplay(amt) + " @ " + PriceMath.fmtPrice(price), MainActivity.LOG_WARN);
-        act.txn().createOrder(buy, amt, price, new LimitTxn.Result() {
+        act.log((buy ? "Placing BUY " : "Placing SELL ") + PriceMath.fmtDisplay(amt) + " @ " + PriceMath.fmtPrice(price)
+                + (gtc ? " (GTC)" : ""), MainActivity.LOG_WARN);
+        act.txn().createOrder(buy, amt, price, gtc, new LimitTxn.Result() {
             @Override public void onPosted(String txpowid) {
                 act.log("Order posted — appears in the book shortly", MainActivity.LOG_OK);
                 priceIn.setText(""); amountIn.setText(""); act.requestReload();
@@ -209,10 +224,14 @@ public class NewOrderView extends BaseView {
         r.addView(cell(PriceMath.fmtPrice(o.price()), sideColor, true, 1.1f));
         r.addView(cell(PriceMath.fmtDisplay(o.minimaAmount()), Theme.text(), false, 1f));
 
-        long left = o.blocksLeft(act.chainBlock());
-        long hrsLeft = left * 50 / 3600;
-        String age = expired ? "reclaiming" : ("~" + (hrsLeft > 0 ? hrsLeft + "h" : (left * 50 / 60) + "m"));
-        r.addView(cell(age, Theme.dim(), false, 1f));
+        if (o.isGtc()) {
+            r.addView(cell(o.renewDue(act.chainBlock()) ? "renewing" : "GTC", Theme.green(), true, 1f));
+        } else {
+            long left = o.blocksLeft(act.chainBlock());
+            long hrsLeft = left * 50 / 3600;
+            String age = expired ? "reclaiming" : ("~" + (hrsLeft > 0 ? hrsLeft + "h" : (left * 50 / 60) + "m"));
+            r.addView(cell(age, Theme.dim(), false, 1f));
+        }
 
         if (cancelling.contains(o.coinid())) {
             TextView b = Ui.badge(act, "CANCELLING", Theme.accent(), Theme.accentLight());

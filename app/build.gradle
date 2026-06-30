@@ -10,8 +10,8 @@ android {
         applicationId "org.minimarex.limit"
         minSdk 28
         targetSdk 35
-        versionCode 108
-        versionName "0.1.8"
+        versionCode 200
+        versionName "0.2.0"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }

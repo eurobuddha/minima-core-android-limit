@@ -51,6 +51,11 @@ public class Order {
     public boolean expired(int tip) { return ageBlocks(tip) > EXPIRY_BLOCKS; }
     public long blocksLeft(int tip) { return Math.max(0, EXPIRY_BLOCKS - ageBlocks(tip)); }
 
+    /** Good-till-cancelled marker (state port 7 == "1") — such orders are auto-renewed, never expire. */
+    public boolean isGtc() { return "1".equals(coin.stateAt(P_GTC).trim()); }
+    /** A GTC order that has aged enough to be re-placed (before the 1500 collect window). */
+    public boolean renewDue(int tip) { return isGtc() && ageBlocks(tip) >= RENEW_AT; }
+
     public boolean isMine(Set<String> myKeys) {
         String pk = ownerPk();
         return pk != null && !pk.isEmpty() && myKeys.contains(pk);

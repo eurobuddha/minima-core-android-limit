@@ -30,11 +30,17 @@ public final class LimitContract {
         "0x7D39745FBD29049BE29850B55A18BF550E4D442F930F86266E34193D89042A90";
 
     public static final int EXPIRY_BLOCKS = 1500;
+    /** GTC orders are auto-renewed once they reach this age — well before EXPIRY_BLOCKS so the renewal
+     *  (cancel→recreate) always lands before any client could COINAGE-collect the order at 1500. */
+    public static final int RENEW_AT = 1300;
     public static final int MIN_ORDER_MINIMA_CENTI = 1;   // 0.01 MINIMA minimum (see PriceMath.MIN_ORDER)
 
     // state ports
     public static final int P_OWNER_PK = 0, P_WANT_ADDR = 1, P_WANT_AMT = 2, P_WANT_TOK = 3,
-            P_ORDER_ID = 4, P_SIDE = 5, P_PRICE = 6;
+            P_ORDER_ID = 4, P_SIDE = 5, P_PRICE = 6,
+            /** GTC marker ("1" = good-till-cancelled). The V4 script ignores ports >3, so this is an
+             *  app-only flag that's invisible-but-harmless to the contract and the dapp. */
+            P_GTC = 7;
 
     // ---- the four pinned scripts + addresses (verbatim from lint.js) ----
 
