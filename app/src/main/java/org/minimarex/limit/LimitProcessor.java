@@ -61,6 +61,12 @@ public class LimitProcessor {
     public void process(List<Order> book, Set<String> myKeys, int chainBlock, Listener l) {
         if (txn == null) return;
 
+        // Re-read persisted state each scan so the foreground activity and the long-lived background
+        // service (separate processor instances that now alternate, one active at a time) always act on
+        // CURRENT state — otherwise the stale instance can stall an in-flight renewal started by the other.
+        // Transient per-instance state (recreateInFlight, collecting) is deliberately kept in memory.
+        reloadPersistedState();
+
         Map<String, OrderSnap> nowMine = new HashMap<>();
         Set<String> liveIds = new HashSet<>();
         Set<String> nowMineOrderIds = new HashSet<>();
@@ -159,7 +165,7 @@ public class LimitProcessor {
                     // Funds ARE back but the re-lock failed — retry; on give-up the funds sit safely in the
                     // wallet and the order is gone, so tell the user to re-place it.
                     recreateInFlight.remove(p.orderId);
-                    p.recreateSent = false; p.recreateBlock = 0;
+                    p.recreateSent = false; p.recreateBlock = 0; p.fundsMissing = 0;   // funds were present → break the missing-streak
                     if (++p.retries > MAX_RECREATE_RETRIES) {
                         if (l != null && p.snap != null) l.onRenewalStranded(p.snap);
                         finish(p);
@@ -205,6 +211,14 @@ public class LimitProcessor {
         JSONArray a = new JSONArray();
         for (OrderSnap s : mine.values()) a.put(s.toJson());
         store.putMyOrdersRaw(a);
+    }
+    /** Re-read the shared persisted state (snapshot + renewals) so this instance is coherent with the
+     *  other processor. Transient per-instance sets (recreateInFlight/collecting) are left untouched. */
+    private void reloadPersistedState() {
+        prevMine = loadSnapshot();
+        pending.clear();
+        renewing.clear();
+        loadRenewals();
     }
     private void loadRenewals() {
         if (store == null) return;
