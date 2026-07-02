@@ -37,7 +37,7 @@ public class LimitProcessor {
     private static final int MAX_COLLECT_PER_BLOCK = 2;
     private static final int MAX_RENEW_PER_BLOCK = 2;
     private static final int MAX_RECREATE_RETRIES = 5;
-    private static final int RECREATE_WAIT = 6;   // scans to let a posted recreate land before re-posting (anti double-create)
+    private static final int RECREATE_WAIT_BLOCKS = 4;   // blocks to let a posted recreate mine before re-posting (anti double-create)
 
     private final LimitTxn txn;
     private final TradeStore store;
@@ -79,7 +79,7 @@ public class LimitProcessor {
         collecting.retainAll(liveIds);
 
         // 2) advance in-flight GTC renewals (cancel mined → recreate; new coin arrived → done).
-        advanceRenewals(liveIds, nowMineOrderIds, l);
+        advanceRenewals(liveIds, nowMineOrderIds, chainBlock, l);
 
         // 3) start renewals (mine + GTC + due) and collect expired (mine non-GTC, or anyone's abandoned).
         int renews = 0, collects = 0;
@@ -122,7 +122,7 @@ public class LimitProcessor {
         });
     }
 
-    private void advanceRenewals(Set<String> liveIds, Set<String> nowMineOrderIds, Listener l) {
+    private void advanceRenewals(Set<String> liveIds, Set<String> nowMineOrderIds, int chainBlock, Listener l) {
         for (final Pending p : new ArrayList<>(pending.values())) {
             if (liveIds.contains(p.oldCoinid)) continue;                 // cancel not mined yet → wait
             // The fresh coin shares the orderId, so it's only "done" once the OLD coin is gone AND the
@@ -130,17 +130,19 @@ public class LimitProcessor {
             // recreate already landed, we detect it here instead of posting a duplicate.
             if (nowMineOrderIds.contains(p.orderId)) { finish(p); continue; }
             if (recreateInFlight.contains(p.orderId)) continue;         // a recreate send is in progress
-            // If a recreate was already posted (incl. before a restart), wait for it to land before
-            // posting another — prevents a duplicate order/double-lock if it's just slow to mine.
-            if (p.recreateSent && ++p.waits < RECREATE_WAIT) { persistRenewals(); continue; }
+            // If a recreate was already posted, wait a few BLOCKS (not scans — process() runs many times
+            // per block on NEWBALANCE bursts) for it to mine before posting another, so a slow recreate
+            // can't be duplicated into a second order / double-lock.
+            if (p.recreateSent && p.recreateBlock > 0 && chainBlock - p.recreateBlock < RECREATE_WAIT_BLOCKS) continue;
             recreateInFlight.add(p.orderId);                            // cancel mined, no new coin yet → re-place
+            final int postedAt = chainBlock;
             txn.recreate(p.lockAmt, p.lockTokUsdt, p.state, new LimitTxn.Result() {
                 @Override public void onPosted(String txpowid) {
-                    recreateInFlight.remove(p.orderId); p.recreateSent = true; p.waits = 0; persistRenewals();
+                    recreateInFlight.remove(p.orderId); p.recreateSent = true; p.recreateBlock = postedAt; persistRenewals();
                 }
                 @Override public void onFailed(String message) {
                     recreateInFlight.remove(p.orderId);
-                    p.recreateSent = false;                             // not actually posted → allow retry
+                    p.recreateSent = false; p.recreateBlock = 0;        // not actually posted → allow retry
                     if (++p.retries > MAX_RECREATE_RETRIES) finish(p);  // give up; funds safe in the wallet
                     persistRenewals();
                     if (l != null) l.onError(message);
@@ -207,19 +209,19 @@ public class LimitProcessor {
         final boolean lockTokUsdt;
         int retries;
         boolean recreateSent;     // a recreate has been posted (persisted so a restart waits for it, not re-posts)
-        int waits;                // scans waited for a posted recreate to land
+        int recreateBlock;        // block height the recreate was posted at (block-based wait; 0 = none)
         Pending(String orderId, String oldCoinid, String lockAmt, boolean lockTokUsdt, String state,
-                int retries, boolean recreateSent, int waits) {
+                int retries, boolean recreateSent, int recreateBlock) {
             this.orderId = orderId; this.oldCoinid = oldCoinid; this.lockAmt = lockAmt;
             this.lockTokUsdt = lockTokUsdt; this.state = state; this.retries = retries;
-            this.recreateSent = recreateSent; this.waits = waits;
+            this.recreateSent = recreateSent; this.recreateBlock = recreateBlock;
         }
         JSONObject toJson() {
             JSONObject o = new JSONObject();
             try {
                 o.put("orderId", orderId); o.put("oldCoinid", oldCoinid); o.put("lockAmt", lockAmt);
                 o.put("lockTokUsdt", lockTokUsdt); o.put("state", state); o.put("retries", retries);
-                o.put("recreateSent", recreateSent); o.put("waits", waits);
+                o.put("recreateSent", recreateSent); o.put("recreateBlock", recreateBlock);
             } catch (Exception ignored) {}
             return o;
         }
@@ -228,7 +230,7 @@ public class LimitProcessor {
             if (oid.isEmpty()) return null;
             return new Pending(oid, o.optString("oldCoinid", ""), o.optString("lockAmt", "0"),
                     o.optBoolean("lockTokUsdt", false), o.optString("state", ""), o.optInt("retries", 0),
-                    o.optBoolean("recreateSent", false), o.optInt("waits", 0));
+                    o.optBoolean("recreateSent", false), o.optInt("recreateBlock", 0));
         }
     }
 
