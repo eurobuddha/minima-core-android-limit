@@ -30,9 +30,10 @@ public final class LimitContract {
         "0x7D39745FBD29049BE29850B55A18BF550E4D442F930F86266E34193D89042A90";
 
     public static final int EXPIRY_BLOCKS = 1500;
-    /** GTC orders are auto-renewed once they reach this age — well before EXPIRY_BLOCKS so the renewal
-     *  (cancel→recreate) always lands before any client could COINAGE-collect the order at 1500. */
-    public static final int RENEW_AT = 1300;
+    /** GTC orders are auto-renewed once they reach this age. Kept LOW (well below EXPIRY_BLOCKS) so the
+     *  window in which any foreground open / background scan can renew is WIDE (~500→1500 ≈ 14h) rather
+     *  than a narrow slot — a phone that runs the app even once in that window keeps the order alive. */
+    public static final int RENEW_AT = 500;
     public static final int MIN_ORDER_MINIMA_CENTI = 1;   // 0.01 MINIMA minimum (see PriceMath.MIN_ORDER)
 
     // state ports
