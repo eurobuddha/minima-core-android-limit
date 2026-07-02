@@ -165,6 +165,11 @@ public class LimitService extends Service {
                 Notifier.fill(LimitService.this, o.sell, o.minima, o.usdt, o.price);
             }
         }
+        @Override public void onRenewalStranded(LimitProcessor.OrderSnap o) {
+            Notifier.alert(LimitService.this, "GTC order couldn't renew",
+                    "Your " + (o.sell ? "SELL" : "BUY") + " " + o.minima + " MINIMA @ " + o.price
+                            + " couldn't be re-placed — the funds are back in your wallet. Please place it again.");
+        }
         @Override public void onError(String m) {}
     };
 

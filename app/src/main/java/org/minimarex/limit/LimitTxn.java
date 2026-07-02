@@ -61,11 +61,19 @@ public class LimitTxn {
                 + "\",\"6\":\"" + o.priceRaw() + "\",\"7\":\"1\"}";
     }
 
+    /** GTC-renewal recreate outcome — distinguishes the funds not returning (order was FILLED, not
+     *  cancelled) from a genuine error posting the re-lock, so the caller can react correctly. */
+    public interface RenewResult {
+        void onRelocked(String txpowid);   // funds were back and re-locked into a fresh order coin
+        void onFundsMissing();             // the cancelled funds aren't in the wallet → the order was filled
+        void onError(String message);      // funds were back but posting the re-lock failed
+    }
+
     /** Step 2 of a GTC renewal: re-lock the (now-returned) funds into a fresh order coin (age reset).
      *  GUARDED: only re-locks if the cancel's exact funds are actually back in the wallet (a spendable
      *  plain coin of exactly lockAmt/lockTok). If the order was FILLED instead of cancelled, the locked
-     *  asset went to the taker and never returns, so this safely no-ops rather than locking fresh funds. */
-    public void recreate(String lockAmt, boolean lockTokUsdt, String state, Result cb) {
+     *  asset went to the taker and never returns — reported via {@link RenewResult#onFundsMissing()}. */
+    public void recreate(String lockAmt, boolean lockTokUsdt, String state, RenewResult cb) {
         final String lockTok = lockTokUsdt ? USDT_ID : Util.MINIMA_TOKENID;
         final BigDecimal need = Util.dec(lockAmt);
         node.cmd("coins relevant:true sendable:true tokenid:" + lockTok, new NodeApi.Cb() {
@@ -79,10 +87,13 @@ public class LimitTxn {
                     if (c.hasState()) continue;                                  // plain wallet coins only
                     if (Util.dec(c.amount).compareTo(need) == 0) { returned = true; break; }
                 }
-                if (!returned) { cb.onFailed("Cancel not settled — funds not back, not re-locking"); return; }
-                send(lockAmt, lockTokUsdt ? " tokenid:" + USDT_ID : "", state, "Renew send failed", cb);
+                if (!returned) { cb.onFundsMissing(); return; }
+                send(lockAmt, lockTokUsdt ? " tokenid:" + USDT_ID : "", state, "Renew send failed", new Result() {
+                    @Override public void onPosted(String txpowid) { cb.onRelocked(txpowid); }
+                    @Override public void onFailed(String message) { cb.onError(message); }
+                });
             }
-            @Override public void onError(String m) { cb.onFailed(m); }
+            @Override public void onError(String m) { cb.onError(m); }
         });
     }
 

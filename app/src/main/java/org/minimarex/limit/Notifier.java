@@ -37,6 +37,12 @@ public final class Notifier {
         String title = sell ? "Your SELL order filled" : "Your BUY order filled";
         String body = (sell ? "Sold " : "Bought ") + minima + " MINIMA for " + usdt
                 + " USDT @ " + price + " USDT/MINIMA";
+        alert(c, title, body);
+    }
+
+    /** Post a generic alert on the fills channel (e.g. a GTC order that couldn't be renewed). */
+    public static void alert(Context c, String title, String body) {
+        ensureChannels(c);
         NotificationManager nm = c.getSystemService(NotificationManager.class);
         if (nm == null) return;
         nm.notify(sAlertId++, new NotificationCompat.Builder(c, CH_ALERT)

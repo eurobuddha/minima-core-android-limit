@@ -238,6 +238,10 @@ public class MainActivity extends AppCompatActivity {
      *  Same {@link LimitProcessor} the background {@link LimitService} uses, so behaviour matches. */
     private void runProcessor() {
         if (!identityReady || proc == null) return;
+        // Only process while actually foreground — the background LimitService owns processing when we're
+        // not (it stands down while FOREGROUND). This keeps exactly ONE processor acting on renewals /
+        // collects at a time, so the two can't post competing transactions for the same order.
+        if (!FOREGROUND) return;
         proc.process(new ArrayList<>(orders), new HashSet<>(myKeys), chainBlock, procListener);
     }
 
@@ -251,6 +255,12 @@ public class MainActivity extends AppCompatActivity {
                 log("Your " + (o.sell ? "SELL" : "BUY") + " order filled", LOG_OK);
                 refreshAll();
             }
+        }
+        @Override public void onRenewalStranded(LimitProcessor.OrderSnap o) {
+            Notifier.alert(MainActivity.this, "GTC order couldn't renew",
+                    "Your " + (o.sell ? "SELL" : "BUY") + " " + o.minima + " MINIMA @ " + o.price
+                            + " couldn't be re-placed — the funds are back in your wallet. Please place it again.");
+            log("GTC renewal failed — funds returned to wallet, re-place the order", LOG_WARN);
         }
         @Override public void onError(String message) {}
     };

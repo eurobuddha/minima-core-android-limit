@@ -31,6 +31,9 @@ public class LimitProcessor {
 
     public interface Listener {
         void onMakerFilled(OrderSnap order);
+        /** A GTC order was cancelled for renewal but the re-lock kept failing — funds are safe in the
+         *  wallet but the order is gone; the user should be told to re-place it. */
+        void onRenewalStranded(OrderSnap order);
         void onError(String message);
     }
 
@@ -38,6 +41,7 @@ public class LimitProcessor {
     private static final int MAX_RENEW_PER_BLOCK = 2;
     private static final int MAX_RECREATE_RETRIES = 5;
     private static final int RECREATE_WAIT_BLOCKS = 4;   // blocks to let a posted recreate mine before re-posting (anti double-create)
+    private static final int FUNDS_MISSING_GIVEUP = 3;   // consecutive scans of "funds not back" before concluding the order was filled (avoids a false fill on a transient query lag)
 
     private final LimitTxn txn;
     private final TradeStore store;
@@ -107,7 +111,7 @@ public class LimitProcessor {
     // ----- GTC renewal state machine -----
     private void startRenewal(Order o, Listener l) {
         final Pending p = new Pending(o.orderId(), o.coinid(), o.lockedAmount(),
-                PriceMath.isUsdt(o.lockedTok()), LimitTxn.gtcState(o), 0, false, 0);
+                PriceMath.isUsdt(o.lockedTok()), LimitTxn.gtcState(o), 0, false, 0, OrderSnap.of(o), 0);
         pending.put(p.orderId, p);
         renewing.add(p.oldCoinid);
         persistRenewals();
@@ -136,14 +140,30 @@ public class LimitProcessor {
             if (p.recreateSent && p.recreateBlock > 0 && chainBlock - p.recreateBlock < RECREATE_WAIT_BLOCKS) continue;
             recreateInFlight.add(p.orderId);                            // cancel mined, no new coin yet → re-place
             final int postedAt = chainBlock;
-            txn.recreate(p.lockAmt, p.lockTokUsdt, p.state, new LimitTxn.Result() {
-                @Override public void onPosted(String txpowid) {
-                    recreateInFlight.remove(p.orderId); p.recreateSent = true; p.recreateBlock = postedAt; persistRenewals();
-                }
-                @Override public void onFailed(String message) {
+            txn.recreate(p.lockAmt, p.lockTokUsdt, p.state, new LimitTxn.RenewResult() {
+                @Override public void onRelocked(String txpowid) {
                     recreateInFlight.remove(p.orderId);
-                    p.recreateSent = false; p.recreateBlock = 0;        // not actually posted → allow retry
-                    if (++p.retries > MAX_RECREATE_RETRIES) finish(p);  // give up; funds safe in the wallet
+                    p.recreateSent = true; p.recreateBlock = postedAt; p.fundsMissing = 0; persistRenewals();
+                }
+                @Override public void onFundsMissing() {
+                    // The cancelled funds never returned (a cancel/collect would have returned them same
+                    // block) → the order was FILLED. Grace a scan for indexing lag, then record the fill
+                    // (which we'd otherwise miss, since `renewing` suppressed the maker-fill detector).
+                    recreateInFlight.remove(p.orderId);
+                    if (++p.fundsMissing >= FUNDS_MISSING_GIVEUP) {
+                        if (l != null && p.snap != null) l.onMakerFilled(p.snap);
+                        finish(p);
+                    } else persistRenewals();
+                }
+                @Override public void onError(String message) {
+                    // Funds ARE back but the re-lock failed — retry; on give-up the funds sit safely in the
+                    // wallet and the order is gone, so tell the user to re-place it.
+                    recreateInFlight.remove(p.orderId);
+                    p.recreateSent = false; p.recreateBlock = 0;
+                    if (++p.retries > MAX_RECREATE_RETRIES) {
+                        if (l != null && p.snap != null) l.onRenewalStranded(p.snap);
+                        finish(p);
+                    }
                     persistRenewals();
                     if (l != null) l.onError(message);
                 }
@@ -210,11 +230,14 @@ public class LimitProcessor {
         int retries;
         boolean recreateSent;     // a recreate has been posted (persisted so a restart waits for it, not re-posts)
         int recreateBlock;        // block height the recreate was posted at (block-based wait; 0 = none)
+        final OrderSnap snap;     // the order at renewal time — for a fill/stranded record
+        int fundsMissing;         // consecutive scans the returned funds were absent (→ order was filled)
         Pending(String orderId, String oldCoinid, String lockAmt, boolean lockTokUsdt, String state,
-                int retries, boolean recreateSent, int recreateBlock) {
+                int retries, boolean recreateSent, int recreateBlock, OrderSnap snap, int fundsMissing) {
             this.orderId = orderId; this.oldCoinid = oldCoinid; this.lockAmt = lockAmt;
             this.lockTokUsdt = lockTokUsdt; this.state = state; this.retries = retries;
             this.recreateSent = recreateSent; this.recreateBlock = recreateBlock;
+            this.snap = snap; this.fundsMissing = fundsMissing;
         }
         JSONObject toJson() {
             JSONObject o = new JSONObject();
@@ -222,15 +245,18 @@ public class LimitProcessor {
                 o.put("orderId", orderId); o.put("oldCoinid", oldCoinid); o.put("lockAmt", lockAmt);
                 o.put("lockTokUsdt", lockTokUsdt); o.put("state", state); o.put("retries", retries);
                 o.put("recreateSent", recreateSent); o.put("recreateBlock", recreateBlock);
+                o.put("fundsMissing", fundsMissing);
+                if (snap != null) o.put("snap", snap.toJson());
             } catch (Exception ignored) {}
             return o;
         }
         static Pending from(JSONObject o) {
             String oid = o.optString("orderId", "");
             if (oid.isEmpty()) return null;
+            OrderSnap snap = o.optJSONObject("snap") != null ? OrderSnap.from(o.optJSONObject("snap")) : null;
             return new Pending(oid, o.optString("oldCoinid", ""), o.optString("lockAmt", "0"),
                     o.optBoolean("lockTokUsdt", false), o.optString("state", ""), o.optInt("retries", 0),
-                    o.optBoolean("recreateSent", false), o.optInt("recreateBlock", 0));
+                    o.optBoolean("recreateSent", false), o.optInt("recreateBlock", 0), snap, o.optInt("fundsMissing", 0));
         }
     }
 
