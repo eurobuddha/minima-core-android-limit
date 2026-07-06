@@ -114,10 +114,25 @@ public class LimitProcessor {
         }
     }
 
-    // ----- GTC renewal state machine -----
+    // ----- GTC renewal state machine (also powers EDIT = cancel + re-place with modified state) -----
     private void startRenewal(Order o, Listener l) {
+        startReplace(o, LimitTxn.gtcState(o), l, null);
+    }
+
+    /** EDIT an order: cancel + re-place at new terms via the same persisted, restart-safe state machine
+     *  renewals use (funds-missing = the order was filled mid-edit; retry/stranded handling identical).
+     *  Works for GTC and plain orders alike. Returns false if the order is already mid-renewal/edit. */
+    public boolean startEdit(Order o, String newWantAmt, String newPrice, Listener l, Runnable onCancelFail) {
+        reloadPersistedState();   // see the OTHER host's in-flight renewals before deciding — avoids a
+                                  // stale-map double-cancel when the bg service just started renewing this order
+        if (pending.containsKey(o.orderId()) || renewing.contains(o.coinid())) return false;
+        startReplace(o, LimitTxn.editedState(o, newWantAmt, newPrice), l, onCancelFail);
+        return true;
+    }
+
+    private void startReplace(Order o, String state, Listener l, Runnable onCancelFail) {
         final Pending p = new Pending(o.orderId(), o.coinid(), o.lockedAmount(),
-                PriceMath.isUsdt(o.lockedTok()), LimitTxn.gtcState(o), 0, false, 0, OrderSnap.of(o), 0);
+                PriceMath.isUsdt(o.lockedTok()), state, 0, false, 0, OrderSnap.of(o), 0);
         pending.put(p.orderId, p);
         renewing.add(p.oldCoinid);
         persistRenewals();
@@ -127,6 +142,7 @@ public class LimitProcessor {
                 pending.remove(p.orderId);
                 renewing.remove(p.oldCoinid);
                 persistRenewals();
+                if (onCancelFail != null) onCancelFail.run();
                 if (l != null) l.onError(message);
             }
         });

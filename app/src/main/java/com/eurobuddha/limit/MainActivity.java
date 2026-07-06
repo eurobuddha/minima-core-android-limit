@@ -59,6 +59,7 @@ public class MainActivity extends AppCompatActivity {
     // identity
     private String myPubkey = "", myHexAddr = "";
     private final Set<String> myKeys = new HashSet<>();
+    private KeySet keySet;                                   // robust loader/cache feeding myKeys
     private boolean identityReady = false;
 
     // chain / book state
@@ -138,34 +139,22 @@ public class MainActivity extends AppCompatActivity {
 
     // ===== identity =====
     private void loadIdentity() {
+        // KeySet seeds myKeys from the prefs cache SYNCHRONOUSLY, so Order.isMine works from the very
+        // first render — the old flow blocked everything behind one un-retried async `keys` call, and a
+        // silent failure left the UI blind to the user's own orders (no cancel) while renewals ran on.
+        if (keySet == null) keySet = new KeySet(node, trades, myKeys);
         node.cmd("getaddress", new NodeApi.Cb() {
             @Override public void onResult(JSONObject json) {
                 setPaired(true);
                 JSONObject r = json.optJSONObject("response");
                 if (r != null) { myPubkey = r.optString("publickey", ""); myHexAddr = r.optString("address", ""); }
-                loadKeys();
-            }
-            @Override public void onError(String message) { handleErr(message); }
-        });
-    }
-
-    private void loadKeys() {
-        node.cmd("keys", new NodeApi.Cb() {
-            @Override public void onResult(JSONObject json) {
-                myKeys.clear();
-                Object resp = json.opt("response");
-                JSONArray arr = resp instanceof JSONArray ? (JSONArray) resp
-                        : resp instanceof JSONObject ? ((JSONObject) resp).optJSONArray("keys") : null;
-                if (arr != null) for (int i = 0; i < arr.length(); i++) {
-                    JSONObject k = arr.optJSONObject(i);
-                    if (k != null) { String pk = k.optString("publickey", ""); if (!pk.isEmpty()) myKeys.add(pk); }
-                }
-                if (!myPubkey.isEmpty()) myKeys.add(myPubkey);
+                keySet.setExtraPk(myPubkey);
                 identityReady = !myPubkey.isEmpty() && !myHexAddr.isEmpty();
                 txn = new LimitTxn(node, myPubkey, myHexAddr);
                 proc = new LimitProcessor(txn, trades);
                 if (identityReady) log("Connected · " + Util.shorten(myHexAddr), LOG_OK);
-                reload();
+                reload();                          // don't wait for keys — the cache already armed isMine
+                keySet.refresh(() -> reload());    // fresh keys landed → re-render "Your Open Orders"
             }
             @Override public void onError(String message) { handleErr(message); }
         });
@@ -238,6 +227,8 @@ public class MainActivity extends AppCompatActivity {
      *  Same {@link LimitProcessor} the background {@link LimitService} uses, so behaviour matches. */
     private void runProcessor() {
         if (!identityReady || proc == null) return;
+        if (keySet == null || !keySet.ready()) return;   // never process on a blind key set — a wrong
+                                                         // "not mine" corrupts the snapshot + lapses renewals
         // Only process while actually foreground — the background LimitService owns processing when we're
         // not (it stands down while FOREGROUND). This keeps exactly ONE processor acting on renewals /
         // collects at a time, so the two can't post competing transactions for the same order.
@@ -347,6 +338,16 @@ public class MainActivity extends AppCompatActivity {
 
     // ===== accessors for tab views =====
     public NodeApi node() { return node; }
+    /** Edit = cancel + re-place at new terms via the proven GTC-renewal machinery. Returns false if the
+     *  order is already mid-renewal/edit. onCancelFail lets the view clear its EDITING badge if the very
+     *  first step (posting the cancel) fails — after that, the persisted state machine owns recovery. */
+    public boolean startEdit(Order o, String newWantAmt, String newPriceRaw, Runnable onCancelFail) {
+        if (proc == null) { toast("Still connecting…"); return false; }
+        boolean started = proc.startEdit(o, newWantAmt, newPriceRaw, procListener, onCancelFail);
+        if (started) requestReload();
+        return started;
+    }
+
     public LimitTxn txn() { return txn; }
     public TradeStore trades() { return trades; }
     public List<Order> orders() { return orders; }

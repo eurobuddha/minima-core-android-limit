@@ -61,6 +61,15 @@ public class LimitTxn {
                 + "\",\"6\":\"" + o.priceRaw() + "\",\"7\":\"1\"}";
     }
 
+    /** State for RE-PLACING an order at a new price (EDIT): ports 0/1/3/4/5 preserved verbatim (owner key,
+     *  refund address, want token, orderId, side), ports 2/6 updated to the new want-amount/price, and
+     *  port 7 (GTC) kept EXACTLY as it was — an edit never grants or removes good-till-cancelled. */
+    public static String editedState(Order o, String newWantAmt, String newPrice) {
+        return "{\"0\":\"" + o.ownerPk() + "\",\"1\":\"" + o.wantAddr() + "\",\"2\":\"" + newWantAmt
+                + "\",\"3\":\"" + o.wantTok() + "\",\"4\":\"" + o.orderId() + "\",\"5\":\"" + (o.isBuy() ? "0" : "1")
+                + "\",\"6\":\"" + newPrice + "\"" + (o.isGtc() ? ",\"7\":\"1\"" : "") + "}";
+    }
+
     /** GTC-renewal recreate outcome — distinguishes the funds not returning (order was FILLED, not
      *  cancelled) from a genuine error posting the re-lock, so the caller can react correctly. */
     public interface RenewResult {

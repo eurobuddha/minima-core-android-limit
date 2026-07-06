@@ -33,6 +33,7 @@ public class NewOrderView extends BaseView {
     private LinearLayout ordersBox;    // the ONLY part rebuilt on refresh
     private boolean built = false;
     private final Set<String> cancelling = new HashSet<>();
+    private final Set<String> editing = new HashSet<>();     // coinids mid-edit (cancel+re-place in flight)
     // Debounce the total so NOTHING runs synchronously on each keystroke (a per-keystroke setText was
     // racing the Samsung keyboard's per-key commit and scrambling fast input).
     private final android.os.Handler totalHandler = new android.os.Handler(android.os.Looper.getMainLooper());
@@ -146,6 +147,12 @@ public class NewOrderView extends BaseView {
 
     private void renderOrders() {
         ordersBox.removeAllViews();
+        // Drop transient badges for orders that have left the book (an edit re-places under a NEW coinid, so
+        // the old id lingers forever otherwise) — mirrors how scanBook prunes `filling`.
+        Set<String> live = new HashSet<>();
+        for (Order o : act.orders()) live.add(o.coinid());
+        editing.retainAll(live);
+        cancelling.retainAll(live);
         boolean any = false;
         for (Order o : act.orders()) {
             if (!o.isMine(act.myKeys())) continue;
@@ -238,7 +245,18 @@ public class NewOrderView extends BaseView {
             b.setLayoutParams(Ui.lpFixed(act, 44));
             b.setGravity(Gravity.CENTER);
             r.addView(b);
+        } else if (editing.contains(o.coinid())) {
+            TextView b = Ui.badge(act, "EDITING", Theme.accent(), Theme.accentLight());
+            b.setLayoutParams(Ui.lpFixed(act, 44));
+            b.setGravity(Gravity.CENTER);
+            r.addView(b);
         } else {
+            Button edit = Ui.buttonOutline(act, "✎", Theme.accent());
+            edit.setTextSize(12);
+            edit.setPadding(0, Ui.dp(act, 6), 0, Ui.dp(act, 6));
+            edit.setLayoutParams(Ui.lpFixed(act, 44));
+            edit.setOnClickListener(v -> editDialog(o));
+            r.addView(edit);
             Button cancel = Ui.buttonOutline(act, "✕", Theme.red());
             cancel.setTextSize(12);
             cancel.setPadding(0, Ui.dp(act, 6), 0, Ui.dp(act, 6));
@@ -247,6 +265,48 @@ public class NewOrderView extends BaseView {
             r.addView(cancel);
         }
         return r;
+    }
+
+    // ===== edit (cancel + re-place at a new price, via the renewal state machine) =====
+    private void editDialog(final Order o) {
+        final android.widget.EditText in = new android.widget.EditText(act);
+        in.setInputType(android.text.InputType.TYPE_CLASS_NUMBER | android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        in.setText(PriceMath.fmtPrice(o.price()));
+        in.setSelectAllOnFocus(true);
+        android.widget.FrameLayout wrap = new android.widget.FrameLayout(act);
+        wrap.setPadding(Ui.dp(act, 20), Ui.dp(act, 8), Ui.dp(act, 20), 0);
+        wrap.addView(in);
+        new android.app.AlertDialog.Builder(act)
+                .setTitle("Edit " + (o.isSell() ? "SELL" : "BUY") + " — new price (USDT per MINIMA)")
+                .setMessage((o.isSell()
+                        ? "Your locked " + PriceMath.fmtDisplay(o.minimaAmount()) + " MINIMA stays; the USDT you ask for changes."
+                        : "Your locked " + PriceMath.fmtDisplay(o.usdtAmount()) + " USDT stays; the MINIMA you ask for changes.")
+                        + (o.isGtc() ? " GTC stays on." : "")
+                        + "\nThe order is cancelled and re-placed — it leaves the book for a block or two.")
+                .setView(wrap)
+                .setPositiveButton("Re-place", (d, w) -> doEdit(o, in.getText().toString().trim()))
+                .setNegativeButton("Back", null)
+                .show();
+    }
+
+    private void doEdit(Order o, String priceStr) {
+        BigDecimal price = Util.dec(priceStr);
+        if (price.signum() <= 0) { act.toast("Enter a price"); return; }
+        String newWantAmt;
+        if (o.isSell()) {          // locked MINIMA is fixed → wanted USDT = locked × price
+            newWantAmt = PriceMath.fmtAmt(PriceMath.total(Util.dec(o.lockedAmount()), price));
+        } else {                   // locked USDT is fixed → wanted MINIMA = locked ÷ price
+            BigDecimal minima = Util.dec(o.lockedAmount()).divide(price, 8, java.math.RoundingMode.HALF_UP);
+            if (minima.compareTo(PriceMath.MIN_ORDER) < 0) { act.toast("Result is below the 0.01 MINIMA minimum"); return; }
+            newWantAmt = PriceMath.fmtAmt(minima);
+        }
+        if (Util.dec(newWantAmt).signum() <= 0) { act.toast("Invalid amount"); return; }
+        act.log("Editing order → " + PriceMath.fmtPrice(price) + " (cancel + re-place)…", MainActivity.LOG_WARN);
+        final String id = o.coinid();
+        boolean started = act.startEdit(o, newWantAmt, price.toPlainString(),
+                () -> { editing.remove(id); renderOrders(); act.toast("Edit failed — order unchanged"); });
+        if (started) { editing.add(id); renderOrders(); }
+        else act.toast("Order is already renewing — try again in a moment");
     }
 
     private void doCancel(Order o) {

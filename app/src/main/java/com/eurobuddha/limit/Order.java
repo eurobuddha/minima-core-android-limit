@@ -56,7 +56,15 @@ public class Order {
     /** A GTC order that has aged enough to be re-placed (before the 1500 collect window). */
     public boolean renewDue(int tip) { return isGtc() && ageBlocks(tip) >= RENEW_AT; }
 
+    private boolean relevant = false;   // the NODE says this coin is ours (a state var matches a wallet key)
+
+    /** Marked by {@link BookScanner} when {@code coins relevant:true} returns this coin — node-side
+     *  ownership that survives app reinstalls and any keys-load hiccup (the node itself matches the
+     *  coin's state vars against its wallet keys). */
+    public void markRelevant() { relevant = true; }
+
     public boolean isMine(Set<String> myKeys) {
+        if (relevant) return true;
         String pk = ownerPk();
         return pk != null && !pk.isEmpty() && myKeys.contains(pk);
     }

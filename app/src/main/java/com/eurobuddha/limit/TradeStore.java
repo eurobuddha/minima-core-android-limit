@@ -7,7 +7,9 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /** Local trade history (SharedPreferences-backed JSON). Keeps the most recent 200 trades. */
 public class TradeStore {
@@ -16,9 +18,25 @@ public class TradeStore {
     private static final String KEY = "trades";
     private static final String KEY_MINE = "my_orders";   // persisted snapshot of my live orders
     private static final String KEY_RENEW = "gtc_renewals"; // persisted in-flight GTC renewals
+    private static final String KEY_KEYS = "node_keys";   // cached node key set (see KeySet)
     private final SharedPreferences prefs;
 
     public TradeStore(Context c) { prefs = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE); }
+
+    /** Cached node public keys — seeds isMine() instantly on startup, before the async `keys` load lands. */
+    public Set<String> nodeKeys() {
+        Set<String> out = new HashSet<>();
+        try {
+            JSONArray a = new JSONArray(prefs.getString(KEY_KEYS, "[]"));
+            for (int i = 0; i < a.length(); i++) { String s = a.optString(i, ""); if (!s.isEmpty()) out.add(s); }
+        } catch (Exception ignored) {}
+        return out;
+    }
+    public void putNodeKeys(Set<String> keys) {
+        JSONArray a = new JSONArray();
+        for (String k : keys) a.put(k);
+        prefs.edit().putString(KEY_KEYS, a.toString()).apply();
+    }
 
     /** Persisted snapshot of my open orders (so maker-fill detection survives app/service restarts). */
     public JSONArray myOrdersRaw() {

@@ -46,6 +46,7 @@ public class LimitService extends Service {
 
     private String myPubkey = "", myHexAddr = "";
     private final Set<String> myKeys = new HashSet<>();
+    private KeySet keySet;                                   // robust loader/cache feeding myKeys
     private boolean ready = false;
     private int chainBlock = 0;
 
@@ -104,27 +105,20 @@ public class LimitService extends Service {
 
     // ----- identity -----
     private void loadIdentity() {
+        // KeySet seeds myKeys from the shared prefs cache synchronously and retries the live `keys` load
+        // with backoff — the old flow's silent single-shot failure left `ready` false forever (renewer
+        // never ran) or the key set near-empty (wrong "not mine" bookkeeping). See KeySet.
+        if (keySet == null) keySet = new KeySet(node, trades, myKeys);
         node.cmd("getaddress", new NodeApi.Cb() {
             @Override public void onResult(JSONObject json) {
                 JSONObject r = json.optJSONObject("response");
                 if (r != null) { myPubkey = r.optString("publickey", ""); myHexAddr = r.optString("address", ""); }
-                node.cmd("keys", new NodeApi.Cb() {
-                    @Override public void onResult(JSONObject j2) {
-                        Object resp = j2.opt("response");
-                        JSONArray arr = resp instanceof JSONArray ? (JSONArray) resp
-                                : (resp instanceof JSONObject ? ((JSONObject) resp).optJSONArray("keys") : null);
-                        if (arr != null) for (int i = 0; i < arr.length(); i++) {
-                            JSONObject k = arr.optJSONObject(i);
-                            if (k != null) { String pk = k.optString("publickey", ""); if (!pk.isEmpty()) myKeys.add(pk); }
-                        }
-                        if (!myPubkey.isEmpty()) myKeys.add(myPubkey);
-                        ready = !myPubkey.isEmpty() && !myHexAddr.isEmpty();
-                        txn = new LimitTxn(node, myPubkey, myHexAddr);
-                        proc = new LimitProcessor(txn, trades);
-                        tick();
-                    }
-                    @Override public void onError(String m) {}
-                });
+                keySet.setExtraPk(myPubkey);
+                ready = !myPubkey.isEmpty() && !myHexAddr.isEmpty();
+                txn = new LimitTxn(node, myPubkey, myHexAddr);
+                proc = new LimitProcessor(txn, trades);
+                tick();                          // cache-armed — start processing immediately
+                keySet.refresh(() -> tick());    // and again once fresh keys land
             }
             @Override public void onError(String m) {}
         });
@@ -151,6 +145,7 @@ public class LimitService extends Service {
     }
 
     private void scanAndProcess() {
+        if (keySet == null || !keySet.ready()) return;   // never process on a blind key set
         BookScanner.scan(node, (book, truncated) -> {
             if (book.isEmpty() && truncated) return;   // transport failure — wait for the next block
             proc.process(book, new HashSet<>(myKeys), chainBlock, listener);

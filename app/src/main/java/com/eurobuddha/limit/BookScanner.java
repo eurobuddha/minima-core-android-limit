@@ -36,8 +36,18 @@ public final class BookScanner {
         // NodeApi delivers callbacks on the main thread, so these accumulators need no synchronization.
         final Map<String, Order> merged = new LinkedHashMap<>();
         final Set<String> seen = new HashSet<>();
-        final int[] remaining = { ADDRS.length };
+        final Set<String> relevantIds = new HashSet<>();
+        final int[] remaining = { ADDRS.length * 2 };
         final boolean[] truncated = { false };
+
+        final Runnable done = () -> {
+            if (--remaining[0] != 0) return;
+            // Node-side ownership belt: mark orders the node itself reported as relevant (its wallet
+            // matched a state var — the port-0 owner key — against its own keys). Survives reinstalls
+            // and keys-load failures; Order.isMine honors it alongside the key-set match.
+            for (String id : relevantIds) { Order o = merged.get(id); if (o != null) o.markRelevant(); }
+            cb.onBook(new ArrayList<>(merged.values()), truncated[0]);
+        };
 
         for (String addr : ADDRS) {
             node.cmd("coins address:" + addr, new NodeApi.Cb() {
@@ -53,13 +63,26 @@ public final class BookScanner {
                             if (o.valid() && seen.add(o.coinid())) merged.put(o.coinid(), o);
                         }
                     }
-                    done();
+                    done.run();
                 }
-                @Override public void onError(String message) { truncated[0] = true; done(); }
+                @Override public void onError(String message) { truncated[0] = true; done.run(); }
+            });
 
-                private void done() {
-                    if (--remaining[0] == 0) cb.onBook(new ArrayList<>(merged.values()), truncated[0]);
+            // Ownership belt query — BEST-EFFORT and safe by construction: `relevant:true` only returns coins
+            // whose state carries one of THIS node's keys (port 0 = owner pk), so it can never false-positive on
+            // a stranger's order, and when it returns nothing (unverified at a shared script address — some
+            // nodes need coinnotify first) isMine falls back to the hardened key-set match. A failure here does
+            // NOT mark the book truncated (the key-set match remains the PRIMARY ownership signal — the real fix).
+            node.cmd("coins relevant:true address:" + addr, new NodeApi.Cb() {
+                @Override public void onResult(JSONObject json) {
+                    JSONArray arr = json.optJSONArray("response");
+                    if (arr != null) for (int i = 0; i < arr.length(); i++) {
+                        JSONObject c = arr.optJSONObject(i);
+                        if (c != null) { String id = c.optString("coinid", ""); if (!id.isEmpty()) relevantIds.add(id); }
+                    }
+                    done.run();
                 }
+                @Override public void onError(String message) { done.run(); }
             });
         }
     }
