@@ -1,4 +1,4 @@
-package org.minimarex.limit;
+package com.eurobuddha.limit;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
-import static org.minimarex.limit.LimitContract.*;
+import static com.eurobuddha.limit.LimitContract.*;
 
 /**
  * Builds, signs and posts the Limit DEX transactions over {@link NodeApi}, mirroring the dapp

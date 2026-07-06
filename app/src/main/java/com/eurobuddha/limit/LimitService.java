@@ -1,4 +1,4 @@
-package org.minimarex.limit;
+package com.eurobuddha.limit;
 
 import android.app.Notification;
 import android.app.NotificationChannel;

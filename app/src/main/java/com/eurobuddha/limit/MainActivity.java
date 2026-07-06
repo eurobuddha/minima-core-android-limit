@@ -1,4 +1,4 @@
-package org.minimarex.limit;
+package com.eurobuddha.limit;
 
 import android.Manifest;
 import android.content.BroadcastReceiver;

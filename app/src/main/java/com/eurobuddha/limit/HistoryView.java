@@ -1,4 +1,4 @@
-package org.minimarex.limit;
+package com.eurobuddha.limit;
 
 import android.view.Gravity;
 import android.view.View;

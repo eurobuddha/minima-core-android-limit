@@ -1,4 +1,4 @@
-package org.minimarex.limit;
+package com.eurobuddha.limit;
 
 import android.content.Context;
 import android.content.SharedPreferences;

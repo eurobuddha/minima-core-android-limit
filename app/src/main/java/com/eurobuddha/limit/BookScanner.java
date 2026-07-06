@@ -1,4 +1,4 @@
-package org.minimarex.limit;
+package com.eurobuddha.limit;
 
 import org.json.JSONArray;
 import org.json.JSONObject;

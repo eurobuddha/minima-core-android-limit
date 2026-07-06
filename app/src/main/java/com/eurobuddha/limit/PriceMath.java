@@ -1,4 +1,4 @@
-package org.minimarex.limit;
+package com.eurobuddha.limit;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;

@@ -1,9 +1,9 @@
-package org.minimarex.limit;
+package com.eurobuddha.limit;
 
 import java.math.BigDecimal;
 import java.util.Set;
 
-import static org.minimarex.limit.LimitContract.*;
+import static com.eurobuddha.limit.LimitContract.*;
 
 /**
  * One open order = a coin at a Limit script address carrying the order state (ports 0-6). The maker
