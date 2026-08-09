@@ -1,0 +1,152 @@
+{
+  "app/build.gradle": {
+    "mtime": 1783346091.3299105,
+    "ast_hash": "1e614f344298da4cb4f101b732547501",
+    "semantic_hash": "1e614f344298da4cb4f101b732547501"
+  },
+  "app/src/main/java/com/eurobuddha/limit/BaseView.java": {
+    "mtime": 1783342404.778242,
+    "ast_hash": "1b1de3a7a54a6f24aee331251ac40f6b",
+    "semantic_hash": "1b1de3a7a54a6f24aee331251ac40f6b"
+  },
+  "app/src/main/java/com/eurobuddha/limit/BookScanner.java": {
+    "mtime": 1783345997.332258,
+    "ast_hash": "7b0679405f3b8c8f0c5a38c4693942cc",
+    "semantic_hash": "7b0679405f3b8c8f0c5a38c4693942cc"
+  },
+  "app/src/main/java/com/eurobuddha/limit/ChartView.java": {
+    "mtime": 1783342404.7850456,
+    "ast_hash": "2ebf91a18fe6804123a08eec24dab48a",
+    "semantic_hash": "2ebf91a18fe6804123a08eec24dab48a"
+  },
+  "app/src/main/java/com/eurobuddha/limit/CmdChain.java": {
+    "mtime": 1783342404.777977,
+    "ast_hash": "b755e2155294b2dff3858ad29c6eeec4",
+    "semantic_hash": "b755e2155294b2dff3858ad29c6eeec4"
+  },
+  "app/src/main/java/com/eurobuddha/limit/Coin.java": {
+    "mtime": 1783342404.7758133,
+    "ast_hash": "280dc53eedc897063bd1640efc1d332b",
+    "semantic_hash": "280dc53eedc897063bd1640efc1d332b"
+  },
+  "app/src/main/java/com/eurobuddha/limit/Gecko.java": {
+    "mtime": 1783342404.7815013,
+    "ast_hash": "9a49fd2fd67e7ebe660ad1576a8b1b83",
+    "semantic_hash": "9a49fd2fd67e7ebe660ad1576a8b1b83"
+  },
+  "app/src/main/java/com/eurobuddha/limit/HistoryView.java": {
+    "mtime": 1783342404.776225,
+    "ast_hash": "929db5fc6fda9efdd175c795835cd2d2",
+    "semantic_hash": "929db5fc6fda9efdd175c795835cd2d2"
+  },
+  "app/src/main/java/com/eurobuddha/limit/KeySet.java": {
+    "mtime": 1783345451.8976197,
+    "ast_hash": "171d9a69d41cc8a633015c24a55000ba",
+    "semantic_hash": "171d9a69d41cc8a633015c24a55000ba"
+  },
+  "app/src/main/java/com/eurobuddha/limit/LimitContract.java": {
+    "mtime": 1783342404.7791023,
+    "ast_hash": "f6f9b1e38e3610bd3694fc7445184556",
+    "semantic_hash": "f6f9b1e38e3610bd3694fc7445184556"
+  },
+  "app/src/main/java/com/eurobuddha/limit/LimitProcessor.java": {
+    "mtime": 1783345993.3106425,
+    "ast_hash": "f2088c47a6e73862cb2be8532c5550af",
+    "semantic_hash": "f2088c47a6e73862cb2be8532c5550af"
+  },
+  "app/src/main/java/com/eurobuddha/limit/LimitService.java": {
+    "mtime": 1783345561.7498736,
+    "ast_hash": "16bf539354c821551a5400428ad46ba4",
+    "semantic_hash": "16bf539354c821551a5400428ad46ba4"
+  },
+  "app/src/main/java/com/eurobuddha/limit/LimitTxn.java": {
+    "mtime": 1783345578.1139243,
+    "ast_hash": "a3780da10ed5b71ebfc2e89feeb9ba62",
+    "semantic_hash": "a3780da10ed5b71ebfc2e89feeb9ba62"
+  },
+  "app/src/main/java/com/eurobuddha/limit/LimitWorker.java": {
+    "mtime": 1783342404.783191,
+    "ast_hash": "89b66131fb2fe8bc73542ac4d7062bbf",
+    "semantic_hash": "89b66131fb2fe8bc73542ac4d7062bbf"
+  },
+  "app/src/main/java/com/eurobuddha/limit/MainActivity.java": {
+    "mtime": 1783345538.1476138,
+    "ast_hash": "6fb0de444cf65505115f4c8d6d43a288",
+    "semantic_hash": "6fb0de444cf65505115f4c8d6d43a288"
+  },
+  "app/src/main/java/com/eurobuddha/limit/MainPager.java": {
+    "mtime": 1783342404.784505,
+    "ast_hash": "e1e243853be420bc1e2785fe5fd9c397",
+    "semantic_hash": "e1e243853be420bc1e2785fe5fd9c397"
+  },
+  "app/src/main/java/com/eurobuddha/limit/NewOrderView.java": {
+    "mtime": 1783346047.4689276,
+    "ast_hash": "860de99b71115e766003b68e607bee70",
+    "semantic_hash": "860de99b71115e766003b68e607bee70"
+  },
+  "app/src/main/java/com/eurobuddha/limit/NodeApi.java": {
+    "mtime": 1783342404.7836406,
+    "ast_hash": "dcd624da374de37f77ac53c3b2a7ce11",
+    "semantic_hash": "dcd624da374de37f77ac53c3b2a7ce11"
+  },
+  "app/src/main/java/com/eurobuddha/limit/Notifier.java": {
+    "mtime": 1783342404.7828662,
+    "ast_hash": "c232f20ee572d5f6305060a5735fe753",
+    "semantic_hash": "c232f20ee572d5f6305060a5735fe753"
+  },
+  "app/src/main/java/com/eurobuddha/limit/Order.java": {
+    "mtime": 1783345468.0497124,
+    "ast_hash": "4755f8af3cd47f76e96d40357eafbbaf",
+    "semantic_hash": "4755f8af3cd47f76e96d40357eafbbaf"
+  },
+  "app/src/main/java/com/eurobuddha/limit/OrderBookView.java": {
+    "mtime": 1783342404.7854764,
+    "ast_hash": "d9f028246f3b5fb6ae755ae940e3bf1f",
+    "semantic_hash": "d9f028246f3b5fb6ae755ae940e3bf1f"
+  },
+  "app/src/main/java/com/eurobuddha/limit/PriceMath.java": {
+    "mtime": 1783342404.781797,
+    "ast_hash": "b7effe016beb1b0be896940c8450257a",
+    "semantic_hash": "b7effe016beb1b0be896940c8450257a"
+  },
+  "app/src/main/java/com/eurobuddha/limit/Theme.java": {
+    "mtime": 1783342404.784167,
+    "ast_hash": "b5458a1991ee178039316509a9caf87d",
+    "semantic_hash": "b5458a1991ee178039316509a9caf87d"
+  },
+  "app/src/main/java/com/eurobuddha/limit/Trade.java": {
+    "mtime": 1783342404.7825394,
+    "ast_hash": "8dde48c6c5f1bbade9c8f389251d2e1a",
+    "semantic_hash": "8dde48c6c5f1bbade9c8f389251d2e1a"
+  },
+  "app/src/main/java/com/eurobuddha/limit/TradeStore.java": {
+    "mtime": 1783345457.0338922,
+    "ast_hash": "f99052205970f61a3a271786aad5456b",
+    "semantic_hash": "f99052205970f61a3a271786aad5456b"
+  },
+  "app/src/main/java/com/eurobuddha/limit/Ui.java": {
+    "mtime": 1783342404.7811751,
+    "ast_hash": "a2517d777e9962208967be5b11c3800f",
+    "semantic_hash": "a2517d777e9962208967be5b11c3800f"
+  },
+  "app/src/main/java/com/eurobuddha/limit/Util.java": {
+    "mtime": 1783342404.777619,
+    "ast_hash": "92e57ddc64c61e8c271ff0e4b082f482",
+    "semantic_hash": "92e57ddc64c61e8c271ff0e4b082f482"
+  },
+  "build.gradle": {
+    "mtime": 1782377758.0,
+    "ast_hash": "4d251466b34f1ae1f5bacd62e2d49824",
+    "semantic_hash": "4d251466b34f1ae1f5bacd62e2d49824"
+  },
+  "gradlew": {
+    "mtime": 1782377742.0,
+    "ast_hash": "02c16663c6f0aa37f98d94d698c22b8c",
+    "semantic_hash": "02c16663c6f0aa37f98d94d698c22b8c"
+  },
+  "settings.gradle": {
+    "mtime": 1782756084.2205167,
+    "ast_hash": "1dcb7a62c32b53e03d8930c027b24d15",
+    "semantic_hash": "1dcb7a62c32b53e03d8930c027b24d15"
+  }
+}

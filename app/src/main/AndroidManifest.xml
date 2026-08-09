@@ -21,8 +21,16 @@
         <package android:name="org.minimarex.minimacore" />
     </queries>
 
+    <!-- allowBackup=false is a FUND-SAFETY setting here, not a preference. With the scaffold default
+         (true + empty rules) Android Auto Backup uploaded this app's whole data directory to the user's
+         cloud and RESTORED it on reinstall — which both exfiltrates the data below and re-plants state a
+         reinstall is supposed to clear. A reinstall must be a true reset.
+         At stake: limit_trades → gtc_renewals, a RESUMABLE SPEND state machine. LimitProcessor reloads it at start
+         and posts a real send() whose contract state hard-codes the originating node's pubkey — restored onto
+         a reinstalled or different node, the background service locks the new wallet's funds to a key the
+         user no longer holds. node_keys (the ownership set) would be re-planted the same way -->
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
