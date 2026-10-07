@@ -17,8 +17,8 @@ import androidx.core.content.ContextCompat;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
-import org.minimarex.minimaapi.MinimaAPI;
-import org.minimarex.minimaapi.MinimaAPIMessages;
+import com.eurobuddha.minimaapi.MinimaAPI;
+import com.eurobuddha.minimaapi.MinimaAPIMessages;
 
 import java.util.ArrayList;
 import java.util.HashSet;
