@@ -111,7 +111,7 @@ public class MainActivity extends AppCompatActivity {
         notifyReceiver = new BroadcastReceiver() {
             @Override public void onReceive(Context c, Intent intent) {
                 if (!MinimaAPI.checkMinimaID(MainActivity.this, intent)) return;
-                String data = intent.getStringExtra(MinimaAPIMessages.MINIMA_API_NOTIFY_DATA);
+                String data = MinimaAPI.notifyData(intent);
                 if (data == null) return;
                 try {
                     String event = new JSONObject(data).optString("event", "");
@@ -120,7 +120,7 @@ public class MainActivity extends AppCompatActivity {
             }
         };
         ContextCompat.registerReceiver(this, notifyReceiver,
-                new IntentFilter(MinimaAPIMessages.MINIMA_API_NOTIFY), ContextCompat.RECEIVER_EXPORTED);
+                MinimaAPI.notifyFilter(), ContextCompat.RECEIVER_EXPORTED);
 
         log("Starting up…", LOG_INFO);
         requestNotifPermission();
